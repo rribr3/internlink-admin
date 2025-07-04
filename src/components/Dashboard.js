@@ -25,20 +25,23 @@ import {
   Schedule as ScheduleIcon,
   Analytics as AnalyticsIcon,
   Refresh as RefreshIcon,
-  KeyboardArrowUp as ArrowUpIcon
+  KeyboardArrowUp as ArrowUpIcon,
+  AdminPanelSettings as AdminIcon
 } from '@mui/icons-material';
 import { ref, get } from 'firebase/database';
 import { database } from '../config/firebase';
+import { useGlobalTheme } from '../contexts/GlobalThemeContext';
+import { ThemeToggleButton } from './ThemeToggleButton';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalStudents: 0,
     totalCompanies: 0,
+    totalAdmins: 0,
+    activeAdmins: 0, // NEW: Track active admins
     totalProjects: 0,
     totalApplications: 0,
-    approvedProjects: 0,
-    completedProjects: 0,
     pendingApplications: 0
   });
   const [loading, setLoading] = useState(true);
@@ -59,6 +62,26 @@ const Dashboard = () => {
       const usersArray = Object.values(usersData);
       const students = usersArray.filter(user => user.role === 'student');
       const companies = usersArray.filter(user => user.role === 'company');
+      const admins = usersArray.filter(user => user.role === 'admin');
+      
+      // NEW: Filter active admins (status is 'active' or not deactivated)
+      const activeAdmins = admins.filter(admin => {
+        return admin.status === 'active' || !admin.status || admin.status !== 'deactivated';
+      });
+
+      console.log('User counts:', {
+        total: usersArray.length,
+        students: students.length,
+        companies: companies.length,
+        admins: admins.length,
+        activeAdmins: activeAdmins.length // NEW: Log active admin count
+      });
+
+      console.log('Active admins details:', activeAdmins.map(admin => ({
+        name: admin.name,
+        email: admin.email,
+        status: admin.status || 'active'
+      })));
 
       // Fetch projects data
       const projectsRef = ref(database, 'projects');
@@ -68,8 +91,6 @@ const Dashboard = () => {
       console.log('Projects data:', projectsData);
       
       const projectsArray = Object.values(projectsData);
-      const approvedProjects = projectsArray.filter(project => project.status === 'approved');
-      const completedProjects = projectsArray.filter(project => project.status === 'completed');
 
       // Fetch applications data
       const applicationsRef = ref(database, 'applications');
@@ -85,10 +106,10 @@ const Dashboard = () => {
         totalUsers: usersArray.length,
         totalStudents: students.length,
         totalCompanies: companies.length,
+        totalAdmins: admins.length,
+        activeAdmins: activeAdmins.length, // NEW: Set active admin count
         totalProjects: projectsArray.length,
         totalApplications: applicationsArray.length,
-        approvedProjects: approvedProjects.length,
-        completedProjects: completedProjects.length,
         pendingApplications: pendingApplications.length
       });
 
@@ -291,59 +312,55 @@ const Dashboard = () => {
   const primaryStats = [
     {
       title: "Total Users",
-      value: stats.totalUsers,
+      value: stats.totalUsers, // Should show 18
       icon: <PeopleIcon />,
       gradient: { from: '#667eea', to: '#764ba2', shadow: 'rgba(102, 126, 234, 0.4)' },
       trend: "+12%"
     },
     {
       title: "Students",
-      value: stats.totalStudents,
+      value: stats.totalStudents, // Should show 5
       icon: <PeopleIcon />,
       gradient: { from: '#f093fb', to: '#f5576c', shadow: 'rgba(245, 87, 108, 0.4)' },
       trend: "+8%"
     },
     {
       title: "Companies",
-      value: stats.totalCompanies,
+      value: stats.totalCompanies, // Should show 10
       icon: <BusinessIcon />,
       gradient: { from: '#4facfe', to: '#00f2fe', shadow: 'rgba(79, 172, 254, 0.4)' },
       trend: "+5%"
     },
     {
-      title: "Total Projects",
-      value: stats.totalProjects,
-      icon: <WorkIcon />,
-      gradient: { from: '#43e97b', to: '#38f9d7', shadow: 'rgba(67, 233, 123, 0.4)' },
-      trend: "+15%"
+      title: "Active Admins", // CHANGED: Now shows active admins only
+      value: stats.activeAdmins, // Should show active admins count
+      icon: <AdminIcon />,
+      gradient: { from: '#4caf50', to: '#2e7d32', shadow: 'rgba(76, 175, 80, 0.4)' }, // GREEN for active
+      trend: `${stats.activeAdmins}/${stats.totalAdmins}` // Show active/total ratio
     }
   ];
 
   const secondaryStats = [
     {
-      title: "Approved Projects",
-      value: stats.approvedProjects,
-      icon: <CheckCircleIcon />,
-      gradient: { from: '#fa709a', to: '#fee140', shadow: 'rgba(250, 112, 154, 0.4)' }
-    },
-    {
-      title: "Completed Projects",
-      value: stats.completedProjects,
-      icon: <TrendingUpIcon />,
-      gradient: { from: '#a8edea', to: '#fed6e3', shadow: 'rgba(168, 237, 234, 0.4)' }
+      title: "Total Projects",
+      value: stats.totalProjects, // Should show 20
+      icon: <WorkIcon />,
+      gradient: { from: '#43e97b', to: '#38f9d7', shadow: 'rgba(67, 233, 123, 0.4)' },
+      trend: "+15%"
     },
     {
       title: "Total Applications",
-      value: stats.totalApplications,
+      value: stats.totalApplications, // Should show 22
       icon: <AssignmentIcon />,
       gradient: { from: '#d299c2', to: '#fef9d7', shadow: 'rgba(210, 153, 194, 0.4)' }
     },
     {
       title: "Pending Applications",
-      value: stats.pendingApplications,
+      value: stats.pendingApplications, // Should show 7
       icon: <ScheduleIcon />,
       gradient: { from: '#89f7fe', to: '#66a6ff', shadow: 'rgba(137, 247, 254, 0.4)' }
     }
+    // REMOVED: Approved Projects and Completed Projects
   ];
 
   return (
@@ -376,6 +393,19 @@ const Dashboard = () => {
             >
               Real-time insights and analytics
             </Typography>
+            {/* Live stats summary */}
+            {!loading && (
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  mt: 1,
+                  color: '#4caf50',
+                  fontWeight: 600
+                }}
+              >
+                📊 {stats.totalUsers} Users ({stats.totalStudents} Students, {stats.totalCompanies} Companies, {stats.activeAdmins}/{stats.totalAdmins} Active Admins)
+              </Typography>
+            )}
           </Box>
           
           <Tooltip title="Refresh Data">
@@ -459,7 +489,7 @@ const Dashboard = () => {
         </Fade>
       )}
       
-      {/* Primary Stats */}
+      {/* User Stats - Primary */}
       <Fade in={!loading} timeout={800}>
         <Box sx={{ mb: 4 }}>
           <Typography 
@@ -481,7 +511,7 @@ const Dashboard = () => {
               }
             }}
           >
-            📊 Overview
+            👥 User Overview
           </Typography>
           <Grid container spacing={3}>
             {primaryStats.map((stat, index) => (
@@ -500,7 +530,7 @@ const Dashboard = () => {
         </Box>
       </Fade>
 
-      {/* Secondary Stats */}
+      {/* Project & Application Stats - Secondary */}
       <Fade in={!loading} timeout={1000}>
         <Box>
           <Typography 
@@ -522,17 +552,18 @@ const Dashboard = () => {
               }
             }}
           >
-            🎯 Detailed Analytics
+            🎯 Projects & Applications
           </Typography>
           <Grid container spacing={3}>
             {secondaryStats.map((stat, index) => (
-              <Grid item xs={12} sm={6} lg={3} key={stat.title}>
+              <Grid item xs={12} sm={6} lg={4} key={stat.title}> {/* Changed to lg={4} for 3 columns */}
                 <StatCard
                   title={stat.title}
                   value={stat.value}
                   icon={stat.icon}
                   gradient={stat.gradient}
                   delay={400 + index * 100}
+                  trend={stat.trend}
                 />
               </Grid>
             ))}

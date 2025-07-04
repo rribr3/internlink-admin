@@ -1,5 +1,6 @@
 // src/components/Login.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -18,10 +19,13 @@ import {
   VisibilityOff,
   AdminPanelSettings,
   Email,
-  Lock
+  Lock,
+  BlockOutlined
 } from '@mui/icons-material';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getDatabase, ref, get, update, set } from 'firebase/database';
 import { auth } from '../config/firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
   const [email, setEmail] = useState('admin@internlink.com');
@@ -29,6 +33,73 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const database = getDatabase();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
+
+  const checkUserRoleAndStatus = async (userId) => {
+    try {
+      console.log('🔍 Checking user role and status for:', userId);
+      const userRef = ref(database, `users/${userId}`);
+      const snapshot = await get(userRef);
+      
+      if (snapshot.exists()) {
+        const userData = snapshot.val();
+        console.log('👤 User data:', userData);
+        
+        const userRole = userData.role;
+        const userStatus = userData.status;
+        
+        console.log(`🔐 Role: ${userRole}, Status: ${userStatus}`);
+        
+        // Check if user is admin
+        if (userRole !== 'admin') {
+          return {
+            allowed: false,
+            message: 'Access denied. Only administrators can access this portal.',
+            type: 'role'
+          };
+        }
+        
+        // Check if admin is active
+        if (userStatus === 'deactivated') {
+          return {
+            allowed: false,
+            message: 'Your admin account has been deactivated. Please contact the system administrator.',
+            type: 'status'
+          };
+        }
+        
+        // User is admin and active
+        return {
+          allowed: true,
+          userData: userData
+        };
+        
+      } else {
+        return {
+          allowed: false,
+          message: 'User profile not found in the system.',
+          type: 'not_found'
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error checking user role and status:', error);
+      return {
+        allowed: false,
+        message: 'Error verifying user permissions. Please try again.',
+        type: 'error'
+      };
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -37,11 +108,81 @@ const Login = () => {
 
     try {
       console.log('🔄 Attempting to sign in with:', email);
-      await signInWithEmailAndPassword(auth, email, password);
-      console.log('✅ Login successful - AuthContext will handle redirect');
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+      console.log('✅ Firebase authentication successful:', firebaseUser.uid);
+      
+      // Check user role and status in database
+      const permissionCheck = await checkUserRoleAndStatus(firebaseUser.uid);
+      
+      if (!permissionCheck.allowed) {
+        // Sign out the user immediately if not allowed
+        await signOut(auth);
+        console.log('🚫 Access denied, user signed out');
+        
+        // Show appropriate error message
+        if (permissionCheck.type === 'status') {
+          setError(
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BlockOutlined sx={{ fontSize: 20 }} />
+              {permissionCheck.message}
+            </Box>
+          );
+        } else {
+          setError(permissionCheck.message);
+        }
+        return;
+      }
+      
+      console.log('✅ Permission check passed - Admin with active status');
+      console.log('📊 User data:', permissionCheck.userData);
+      
+      // Update user's last login timestamp
+      try {
+        const userRef = ref(database, `users/${firebaseUser.uid}`);
+        const userStatusRef = ref(database, `user_status/${firebaseUser.uid}`);
+        
+        // Update last login and online status
+        await Promise.all([
+          update(userRef, { 
+            lastLogin: new Date().toISOString() 
+          }),
+          set(userStatusRef, {
+            online: true,
+            lastSeen: Date.now(),
+            loginTime: Date.now()
+          })
+        ]);
+        
+        console.log('✅ User status updated');
+      } catch (updateError) {
+        console.warn('⚠️ Could not update user status:', updateError);
+        // Don't prevent login if status update fails
+      }
+      
+      // Navigate to dashboard
+      navigate('/dashboard', { replace: true });
+      
     } catch (error) {
       console.error('❌ Login error:', error);
-      setError(error.message);
+      
+      // Provide more user-friendly error messages
+      let errorMessage = error.message;
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.';
+      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMessage = 'Incorrect email or password. Please try again.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Please enter a valid email address.';
+      } else if (error.code === 'auth/user-disabled') {
+        errorMessage = 'This account has been disabled by Firebase.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your internet connection.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -54,7 +195,7 @@ const Login = () => {
   return (
     <Box
       sx={{
-        height: '92vh',
+        height: '100vh',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         display: 'flex',
         alignItems: 'center',
@@ -199,7 +340,7 @@ const Login = () => {
                   fontSize: { xs: '0.8rem', sm: '0.875rem' }
                 }}
               >
-                Secure access to your dashboard
+                Secure access for active administrators only
               </Typography>
             </Box>
 
@@ -344,7 +485,7 @@ const Login = () => {
                     <Box
                       sx={{
                         width: 20,
-                        height: 15,
+                        height: 20,
                         border: '2px solid rgba(255, 255, 255, 0.3)',
                         borderTop: '2px solid white',
                         borderRadius: '50%',
@@ -355,16 +496,42 @@ const Login = () => {
                         }
                       }}
                     />
-                    Authenticating...
+                    Verifying Access...
                   </Box>
                 ) : (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <AdminPanelSettings />
                     Sign In
-                    
                   </Box>
                 )}
               </Button>
+            </Box>
+
+            {/* Security Notice */}
+            <Box
+              sx={{
+                mt: 2,
+                p: 2,
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                borderRadius: 2,
+                border: '1px solid rgba(102, 126, 234, 0.2)'
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  textAlign: 'center',
+                  color: 'rgba(102, 126, 234, 0.8)',
+                  fontWeight: 500,
+                  fontSize: '0.75rem',
+                  lineHeight: 1.4
+                }}
+              >
+                🔒 Access restricted to active administrators only
+                <br />
+                All login attempts are monitored and logged
+              </Typography>
             </Box>
 
             {/* Footer */}
@@ -375,7 +542,8 @@ const Login = () => {
                 textAlign: 'center',
                 color: 'rgba(0, 0, 0, 0.4)',
                 fontWeight: 300,
-                fontSize: '0.75rem'
+                fontSize: '0.75rem',
+                mt: 2
               }}
             >
               © 2025 InternLink Admin Portal

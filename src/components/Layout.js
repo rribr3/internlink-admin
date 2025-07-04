@@ -1,5 +1,5 @@
 // src/components/Layout.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Drawer,
@@ -38,11 +38,17 @@ import {
   KeyboardArrowDown as ArrowDownIcon,
   AdminPanelSettings,
   Business as BusinessIcon,
-  TrendingUp as TrendingUpIcon
-} from '@mui/icons-material';
+  TrendingUp as TrendingUpIcon,
+  Report as ReportIcon  // <-- Add this line
+
+} from '@mui/icons-material'; // <-- Fixed: Changed from @mui/material to @mui/icons-material
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
-
+import { useGlobalTheme } from '../contexts/GlobalThemeContext';
+import { ThemeToggleButton } from './ThemeToggleButton';
+import { ref, onValue, off } from 'firebase/database';
+import { database } from '../config/firebase';
+import NotificationBar from './notificationbar'; // lowercase
 const drawerWidth = 280;
 
 const menuItems = [
@@ -72,6 +78,15 @@ const menuItems = [
     color: '#28B463',
     gradient: 'linear-gradient(135deg, #28B463 0%, #58D68D 100%)',
     description: 'Internship Projects'
+  },
+  {
+    id: 'issues',
+    text: 'Issues & Reports',
+    icon: <ReportIcon />,
+    path: '/issues',
+    color: '#E74C3C',
+    gradient: 'linear-gradient(135deg, #E74C3C 0%, #F1948A 100%)',
+    description: 'Dispute Resolution'
   },
   {
     id: 'reports',
@@ -110,15 +125,46 @@ const menuItems = [
     description: 'System Configuration'
   }
 ];
-
 const Layout = ({ children }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hasNotificationBar, setHasNotificationBar] = useState(false);
   const { logout, currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Firebase listener for unread announcements
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const announcementsRef = ref(database, 'announcements_by_role/admin');
+    
+    const unsubscribe = onValue(announcementsRef, (snapshot) => {
+      let unreadCounter = 0;
+
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        
+        Object.keys(data).forEach((key) => {
+          const announcement = data[key];
+          // Count unread announcements (isRead: false or undefined)
+          if (!announcement.isRead) {
+            unreadCounter++;
+          }
+        });
+      }
+
+      setUnreadCount(unreadCounter);
+      setHasNotificationBar(unreadCounter > 0);
+    });
+
+    return () => {
+      off(announcementsRef);
+    };
+  }, [currentUser]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -144,6 +190,15 @@ const Layout = ({ children }) => {
 
   const handleMenuItemClick = (path) => {
     navigate(path);
+    if (isMobile) {
+      setMobileOpen(false);
+    }
+  };
+
+  // Updated notification click handler
+  const handleNotificationClick = () => {
+    // Navigate to settings page with notifications tab
+    navigate('/settings?tab=notifications');
     if (isMobile) {
       setMobileOpen(false);
     }
@@ -340,60 +395,6 @@ const Layout = ({ children }) => {
         </List>
 
         <Divider sx={{ my: 2 }} />
-
-        {/* Quick Stats */}
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
-            borderRadius: 2,
-            border: '1px solid rgba(102, 126, 234, 0.1)'
-          }}
-        >
-          <Typography 
-            variant="overline" 
-            sx={{ 
-              color: 'rgba(0, 0, 0, 0.6)',
-              fontWeight: 600,
-              fontSize: '0.75rem'
-            }}
-          >
-            Quick Stats
-          </Typography>
-          
-          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="body2" sx={{ color: 'rgba(0, 0, 0, 0.7)' }}>
-                Active Users
-              </Typography>
-              <Chip 
-                label="1,234" 
-                size="small" 
-                sx={{ 
-                  background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-                  color: 'white',
-                  fontWeight: 600
-                }} 
-              />
-            </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="body2" sx={{ color: 'rgba(0, 0, 0, 0.7)' }}>
-                New Today
-              </Typography>
-              <Chip 
-                label="23" 
-                size="small" 
-                sx={{ 
-                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                  color: 'white',
-                  fontWeight: 600
-                }} 
-              />
-            </Box>
-          </Box>
-        </Paper>
       </Box>
     </Box>
   );
@@ -412,10 +413,12 @@ const Layout = ({ children }) => {
         sx={{
           width: { md: `calc(100% - ${drawerWidth}px)` },
           ml: { md: `${drawerWidth}px` },
+          top: 0,
           background: 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(20px)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-          borderBottom: '1px solid rgba(0, 0, 0, 0.05)'
+          borderBottom: '1px solid rgba(0, 0, 0, 0.05)',
+          zIndex: 1201
         }}
       >
         <Toolbar sx={{ justifyContent: 'space-between' }}>
@@ -467,6 +470,7 @@ const Layout = ({ children }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title="Notifications">
               <IconButton
+                onClick={handleNotificationClick}
                 sx={{ 
                   color: '#667eea',
                   '&:hover': { 
@@ -475,7 +479,23 @@ const Layout = ({ children }) => {
                   }
                 }}
               >
-                <Badge badgeContent={4} color="error">
+                <Badge 
+                  badgeContent={unreadCount} 
+                  color="error"
+                  sx={{
+                    '& .MuiBadge-badge': {
+                      fontSize: '0.75rem',
+                      minWidth: '18px',
+                      height: '18px',
+                      animation: unreadCount > 0 ? 'pulse 2s infinite' : 'none',
+                      '@keyframes pulse': {
+                        '0%': { transform: 'scale(1)' },
+                        '50%': { transform: 'scale(1.1)' },
+                        '100%': { transform: 'scale(1)' }
+                      }
+                    }
+                  }}
+                >
                   <NotificationsIcon />
                 </Badge>
               </IconButton>
@@ -597,7 +617,8 @@ const Layout = ({ children }) => {
               boxSizing: 'border-box',
               width: drawerWidth,
               border: 'none',
-              boxShadow: '20px 0 40px rgba(0, 0, 0, 0.1)'
+              boxShadow: '20px 0 40px rgba(0, 0, 0, 0.1)',
+              marginTop: 0
             },
           }}
         >
@@ -612,7 +633,8 @@ const Layout = ({ children }) => {
               boxSizing: 'border-box',
               width: drawerWidth,
               border: 'none',
-              boxShadow: '8px 0 24px rgba(0, 0, 0, 0.05)'
+              boxShadow: '8px 0 24px rgba(0, 0, 0, 0.05)',
+              marginTop: 0
             },
           }}
           open
@@ -629,7 +651,8 @@ const Layout = ({ children }) => {
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
           background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-          position: 'relative'
+          position: 'relative',
+          marginTop: '64px'
         }}
       >
         {/* Background Pattern */}
@@ -648,9 +671,12 @@ const Layout = ({ children }) => {
           }}
         />
         
-        <Toolbar />
+        {/* Notification Bar as Ad Banner */}
+        <Box sx={{ position: 'relative', zIndex: 2 }}>
+          <NotificationBar />
+        </Box>
         
-        <Box sx={{ position: 'relative', zIndex: 1 }}>
+        <Box sx={{ position: 'relative', zIndex: 1, padding: '24px' }}>
           {children}
         </Box>
       </Box>
