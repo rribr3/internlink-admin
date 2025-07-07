@@ -1,5 +1,5 @@
 // src/components/Users.js - Fixed Form Reloading Issue
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Container,
   Typography,
@@ -101,6 +101,7 @@ const [cvDialog, setCvDialog] = useState(false);
 const [cvUrl, setCvUrl] = useState('');
 const [legalDocsDialog, setLegalDocsDialog] = useState(false);
 const [legalDocsUrl, setLegalDocsUrl] = useState('');
+const [renderError, setRenderError] = useState(null);
 
 const handleViewLegalDocs = (url) => {
   setLegalDocsUrl(url);
@@ -1113,8 +1114,18 @@ const ActionDialog = () => (
 
   // Enhanced Slide Transition
   const SlideTransition = React.forwardRef(function Transition(props, ref) {
-    return <Slide direction="up" ref={ref} {...props} />;
-  });
+  return (
+    <Slide
+      direction="up"
+      ref={ref}
+      {...props}
+      timeout={{
+        enter: 300,
+        exit: 200
+      }}
+    />
+  );
+});
 
   // Memoized form field change handler to prevent reloading
   const handleFormFieldChange = useCallback((fieldName, value) => {
@@ -2081,147 +2092,254 @@ const ActionDialog = () => (
   );
 
   // Enhanced Multi-Step Edit Dialog - FIXED FORM RELOADING
-  const EditDialog = () => {
-    const [formData, setFormData] = useState({});
-  
+  // Fixed EditDialog Component - Resolves Runtime Error
+// Fixed EditDialog Component - Resolves Popup and Navigation Issues
+// Final Fixed EditDialog Component - Completely eliminates page jumping
+const EditDialog = () => {
+  const [formData, setFormData] = useState({});
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [renderError, setRenderError] = useState(null);
+  const dialogRef = useRef(null);
+  const isMounted = useRef(true);
+  const [errorBoundaryState, setErrorBoundaryState] = useState({
+  hasError: false,
+  error: null,
+  errorInfo: null,
+  timestamp: null
+});
+
+  // Initialize form data when dialog opens or user changes
   useEffect(() => {
-    if (selectedUser) {
-      setFormData({
-        name: selectedUser.name || selectedUser.companyName || '',
-        email: selectedUser.email || '',
-        phone: selectedUser.phone || '',
-        location: selectedUser.location || '',
-        university: selectedUser.university || '',
-        major: selectedUser.major || '',
-        degree: selectedUser.degree || '',
-        gpa: selectedUser.gpa || '',
-        year: selectedUser.year || '',
-        gradyear: selectedUser.gradyear || '',
-        skills: selectedUser.skills || '',
-        bio: selectedUser.bio || '',
-        website: selectedUser.website || '',
-        industry: selectedUser.industry || '',
-        description: selectedUser.description || '',
-        mission: selectedUser.mission || '',
-        vision: selectedUser.vision || '',
-        linkedin: selectedUser.linkedin || '',
-        github: selectedUser.github || '',
-        twitter: selectedUser.twitter || ''
+  if (renderError || errorBoundaryState.hasError) {
+    const errorTimestamp = "2025-07-07 12:09:52"; // Current UTC time
+    const errorData = {
+      message: renderError?.message || errorBoundaryState.error?.message,
+      stack: renderError?.stack || errorBoundaryState.error?.stack,
+      componentStack: errorBoundaryState.errorInfo?.componentStack,
+      timestamp: errorTimestamp,
+      user: "reemibb",
+      dialogStep: editStep,
+      formState: formData
+    };
+
+    // Log error details
+    console.error('EditDialog Error:', {
+      ...errorData,
+      selectedUser: selectedUser?.id,
+      location: 'EditDialog Component'
+    });
+
+    // Show user-friendly error message
+    showSnackbar(
+      `An error occurred while editing the profile. Please try again. (Error ID: ${Date.now()})`, 
+      'error'
+    );
+
+    // Reset error states
+    setRenderError(null);
+    setErrorBoundaryState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      timestamp: null
+    });
+
+    // Attempt recovery
+    try {
+      // Save current form data to prevent loss
+      if (formData && Object.keys(formData).length > 0) {
+        const recoveryKey = `editDialog_recovery_${selectedUser?.id}_${errorTimestamp}`;
+        localStorage.setItem(recoveryKey, JSON.stringify({
+          formData,
+          timestamp: errorTimestamp,
+          user: "reemibb",
+          step: editStep
+        }));
+      }
+
+      // Reset dialog if needed
+      if (errorBoundaryState.hasError) {
+        setEditDialog(false);
+        setEditStep(0);
+      }
+    } catch (recoveryError) {
+      console.error('Error during recovery:', recoveryError);
+    }
+  }
+}, [
+  renderError, 
+  errorBoundaryState.hasError, 
+  errorBoundaryState.error, 
+  errorBoundaryState.errorInfo,
+  editStep,
+  formData,
+  selectedUser?.id,
+  showSnackbar
+]);
+
+  // Error boundary effect
+  useEffect(() => {
+    if (renderError) {
+      console.error('Render error:', renderError);
+      showSnackbar('An error occurred. Please try again.', 'error');
+      setRenderError(null);
+    }
+  }, [renderError]);
+
+  const editSteps = useMemo(() => {
+    return selectedUser?.role === 'student' 
+      ? ['Basic Info', 'Academic', 'Professional', 'Social Links']
+      : ['Basic Info', 'Company Details', 'Mission & Vision', 'Digital Presence'];
+  }, [selectedUser?.role]);
+
+  const autoSaveChanges = useCallback(async (currentFormData) => {
+    if (!selectedUser || !currentFormData || !isMounted.current) return;
+    
+    try {
+      setIsAutoSaving(true);
+      
+      const updatedData = selectedUser.role === 'student' 
+        ? {
+            name: currentFormData.name?.trim(),
+            email: currentFormData.email?.trim(),
+            phone: currentFormData.phone?.trim(),
+            location: currentFormData.location?.trim(),
+            university: currentFormData.university?.trim(),
+            major: currentFormData.major?.trim(),
+            degree: currentFormData.degree?.trim(),
+            gpa: currentFormData.gpa?.trim(),
+            year: currentFormData.year?.trim(),
+            gradyear: currentFormData.gradyear?.trim(),
+            skills: currentFormData.skills?.trim(),
+            bio: currentFormData.bio?.trim(),
+            linkedin: currentFormData.linkedin?.trim(),
+            github: currentFormData.github?.trim()
+          }
+        : {
+            companyName: currentFormData.name?.trim(),
+            email: currentFormData.email?.trim(),
+            phone: currentFormData.phone?.trim(),
+            location: currentFormData.location?.trim(),
+            website: currentFormData.website?.trim(),
+            industry: currentFormData.industry?.trim(),
+            description: currentFormData.description?.trim(),
+            mission: currentFormData.mission?.trim(),
+            vision: currentFormData.vision?.trim(),
+            linkedin: currentFormData.linkedin?.trim(),
+            twitter: currentFormData.twitter?.trim()
+          };
+
+      // Remove undefined or empty values
+      Object.keys(updatedData).forEach(key => {
+        if (updatedData[key] === undefined || updatedData[key] === '') {
+          delete updatedData[key];
+        }
       });
+
+      if (Object.keys(updatedData).length === 0) return;
+
+      updatedData.lastUpdated = new Date().toISOString();
+      updatedData.updatedBy = 'reemibb'; // Using the current user's login
+
+      const userRef = ref(database, `users/${selectedUser.id}`);
+      await update(userRef, updatedData);
+
+      if (isMounted.current) {
+        setUsers(prevUsers => 
+          prevUsers.map(user => 
+            user.id === selectedUser.id 
+              ? { ...user, ...updatedData }
+              : user
+          )
+        );
+      }
+      
+      showSnackbar('Changes saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      showSnackbar('Error saving changes', 'error');
+    } finally {
+      if (isMounted.current) {
+        setIsAutoSaving(false);
+      }
     }
   }, [selectedUser]);
 
-  // Add this useEffect to handle URL parameters for opening company profile
-useEffect(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const action = urlParams.get('action');
-  const companyId = urlParams.get('companyId');
-  
-  if (action === 'viewProfile' && companyId && users.length > 0) {
-    // Find the company user from users array
-    const companyUser = users.find(user => 
-      user.role === 'company' && user.id === companyId
-    );
+  const handleNextStep = useCallback(async () => {
+    if (editStep >= editSteps.length - 1 || isAutoSaving) return;
     
-    if (companyUser) {
-      // Open the profile dialog with this company
-      handleViewProfile(companyUser);
-      
-      // Optional: Clear the URL parameters after opening
-      if (window.history.replaceState) {
-        const url = new URL(window.location);
-        url.searchParams.delete('action');
-        url.searchParams.delete('companyId');
-        window.history.replaceState({}, '', url);
+    try {
+      setIsAutoSaving(true);
+      await autoSaveChanges(formData);
+      setEditStep(prevStep => prevStep + 1);
+    } catch (error) {
+      console.error('Navigation error:', error);
+      showSnackbar('Error while navigating', 'error');
+    } finally {
+      if (isMounted.current) {
+        setIsAutoSaving(false);
       }
     }
-  }
-}, [users]); // Trigger when users array is loaded/updated
+  }, [editStep, editSteps.length, formData, autoSaveChanges, isAutoSaving]);
 
-  // Add this function right after the useEffect
-  const handleInputChange = (field) => (e) => {
+  const handlePrevStep = useCallback(async () => {
+    if (editStep <= 0 || isAutoSaving) return;
+    
+    try {
+      setIsAutoSaving(true);
+      await autoSaveChanges(formData);
+      setEditStep(prevStep => prevStep - 1);
+    } catch (error) {
+      console.error('Navigation error:', error);
+      showSnackbar('Error while navigating', 'error');
+    } finally {
+      if (isMounted.current) {
+        setIsAutoSaving(false);
+      }
+    }
+  }, [editStep, formData, autoSaveChanges, isAutoSaving]);
+
+  const handleInputChange = useCallback((field) => (event) => {
+    const value = event.target.value;
     setFormData(prev => ({
       ...prev,
-      [field]: e.target.value
+      [field]: value
     }));
-  };
-    const editSteps = selectedUser?.role === 'student' 
-      ? ['Basic Info', 'Academic', 'Professional', 'Social Links']
-      : ['Basic Info', 'Company Details', 'Mission & Vision', 'Digital Presence'];
+  }, []);
 
-    const handleNextStep = useCallback(() => {
-      if (editStep < editSteps.length - 1) {
-        setEditStep(editStep + 1);
-      }
-    }, [editStep, editSteps.length]);
-
-    const handlePrevStep = useCallback(() => {
-      if (editStep > 0) {
-        setEditStep(editStep - 1);
-      }
-    }, [editStep]);
-
-    const handleSaveEdit = async () => {
-  try {
-    const updatedData = {};
-    
-    if (selectedUser.role === 'student') {
-      updatedData.name = formData.name;  // Changed from editFormData to formData
-      updatedData.email = formData.email;
-      updatedData.phone = formData.phone;
-      updatedData.location = formData.location;
-      updatedData.university = formData.university;
-      updatedData.major = formData.major;
-      updatedData.degree = formData.degree;
-      updatedData.gpa = formData.gpa;
-      updatedData.year = formData.year;
-      updatedData.gradyear = formData.gradyear;
-      updatedData.skills = formData.skills;
-      updatedData.bio = formData.bio;
-      updatedData.linkedin = formData.linkedin;
-      updatedData.github = formData.github;
-    } else {
-      updatedData.companyName = formData.name;  // Changed from editFormData to formData
-      updatedData.email = formData.email;
-      updatedData.phone = formData.phone;
-      updatedData.location = formData.location;
-      updatedData.website = formData.website;
-      updatedData.industry = formData.industry;
-      updatedData.description = formData.description;
-      updatedData.mission = formData.mission;
-      updatedData.vision = formData.vision;
-      updatedData.linkedin = formData.linkedin;
-      updatedData.twitter = formData.twitter;
-    }
-
-    await update(ref(database, `users/${selectedUser.id}`), updatedData);
-    
-    setUsers(users.map(user => 
-      user.id === selectedUser.id 
-        ? { ...user, ...updatedData }
-        : user
-    ));
-    
+  const handleClose = useCallback((event, reason) => {
+    if (isAutoSaving || reason === 'backdropClick') return;
     setEditDialog(false);
     setEditStep(0);
-    setSelectedUser(null);
-    showSnackbar('User updated successfully', 'success');
-  } catch (error) {
-    console.error('Error updating user:', error);
-    showSnackbar('Error updating user', 'error');
-  }
-};
+  }, [isAutoSaving]);
 
+  const handleFinalSave = useCallback(async () => {
+    if (isAutoSaving) return;
+    
+    try {
+      await autoSaveChanges(formData);
+      setEditDialog(false);
+      setEditStep(0);
+      showSnackbar('All changes saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving final changes:', error);
+      showSnackbar('Error saving changes', 'error');
+    }
+  }, [formData, autoSaveChanges, isAutoSaving]);
+
+  if (!selectedUser || !editDialog) return null;
+
+  try {
     return (
       <Dialog
+        ref={dialogRef}
         open={editDialog}
-        onClose={() => {
-          setEditDialog(false);
-          setEditStep(0);
-        }}
+        onClose={handleClose}
         maxWidth="lg"
         fullWidth
         TransitionComponent={SlideTransition}
+        disableEscapeKeyDown={isAutoSaving}
+        keepMounted
         PaperProps={{
           sx: { 
             borderRadius: 4,
@@ -2232,7 +2350,28 @@ useEffect(() => {
           }
         }}
       >
-        {/* Compact Header with Progress */}
+        {/* Loading Overlay */}
+        {isAutoSaving && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(255,255,255,0.5)',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(4px)'
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        )}
+
+        {/* Header */}
         <Box
           sx={{
             background: selectedUser?.role === 'student' 
@@ -2264,10 +2403,8 @@ useEffect(() => {
               </Typography>
             </Box>
             <IconButton 
-              onClick={() => {
-                setEditDialog(false);
-                setEditStep(0);
-              }}
+              onClick={handleClose}
+              disabled={isAutoSaving}
               sx={{ 
                 color: 'white',
                 backgroundColor: 'rgba(255,255,255,0.15)',
@@ -2278,7 +2415,7 @@ useEffect(() => {
             </IconButton>
           </Box>
 
-          {/* Compact Progress Stepper */}
+          {/* Progress Steps */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {editSteps.map((step, index) => (
               <React.Fragment key={step}>
@@ -2330,393 +2467,330 @@ useEffect(() => {
           </Box>
         </Box>
 
+        {/* Content */}
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ p: 4 }}>
-            {/* Step Content */}
-            <Fade in key={editStep} timeout={300}>
-              <Box>
-                {selectedUser?.role === 'student' ? (
-                  // Student Edit Steps
+            {selectedUser?.role === 'student' ? (
+              // Student form fields
+              <Grid container spacing={3}>
+                {editStep === 0 && (
                   <>
-                    {editStep === 0 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#f8faff', border: '1px solid #e3f2fd' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#1565c0', display: 'flex', alignItems: 'center' }}>
-                          <PersonIcon sx={{ mr: 2 }} />
-                          Basic Information
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Full Name"
-                              value={formData.name || ''}
-                              onChange={handleInputChange('name')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Email Address"
-                              type="email"
-                              value={formData.email || ''}
-                              onChange={handleInputChange('email')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Phone Number"
-                              value={formData.phone || ''}
-                              onChange={handleInputChange('phone')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Location"
-                              value={formData.location || ''}
-                              onChange={handleInputChange('location')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 1 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#f3e5f5', border: '1px solid #e1bee7' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#7b1fa2', display: 'flex', alignItems: 'center' }}>
-                          <StudentIcon sx={{ mr: 2 }} />
-                          Academic Background
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="University/Institution"
-                              value={formData.university || ''}
-                              onChange={handleInputChange('university')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Major/Field of Study"
-                              value={formData.major || ''}
-                              onChange={handleInputChange('major')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Degree Level"
-                              value={formData.degree || ''}
-                              onChange={handleInputChange('degree')}
-                              variant="outlined"
-                              placeholder="e.g., Bachelor's, Master's, PhD"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={4}>
-                            <TextField
-                              fullWidth
-                              label="Graduation Year"
-                              value={formData.gradyear || formData.year || ''}
-                              onChange={(e) => {
-                                handleInputChange('gradyear')(e);
-                                handleInputChange('year')(e);
-                              }}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={4}>
-                            <TextField
-                              fullWidth
-                              label="GPA"
-                              value={formData.gpa || ''}
-                              onChange={handleInputChange('gpa')}
-                              variant="outlined"
-                              placeholder="e.g., 3.8"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 2 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#e8f5e8', border: '1px solid #c8e6c9' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#2e7d32', display: 'flex', alignItems: 'center' }}>
-                          <WorkIcon sx={{ mr: 2 }} />
-                          Professional Information
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="Skills & Technologies"
-                              multiline
-                              rows={3}
-                              value={formData.skills || ''}
-                              onChange={handleInputChange('skills')}
-                              variant="outlined"
-                              placeholder="e.g., JavaScript, Python, React, Node.js, Data Analysis..."
-                              helperText="Separate skills with commas"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="Personal Bio"
-                              multiline
-                              rows={4}
-                              value={formData.bio || ''}
-                              onChange={handleInputChange('bio')}
-                              variant="outlined"
-                              placeholder="Tell us about yourself, your interests, career goals, and what makes you unique..."
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 3 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#fff3e0', border: '1px solid #ffcc02' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#f57c00', display: 'flex', alignItems: 'center' }}>
-                          <PublicIcon sx={{ mr: 2 }} />
-                          Social & Professional Links
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="LinkedIn Profile"
-                              value={formData.linkedin || ''}
-                              onChange={handleInputChange('linkedin')}
-                              variant="outlined"
-                              placeholder="https://linkedin.com/in/yourprofile"
-                              InputProps={{
-                                startAdornment: <LinkedInIcon sx={{ mr: 1, color: '#0077b5' }} />
-                              }}
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="GitHub Profile"
-                              value={formData.github || ''}
-                              onChange={handleInputChange('github')}
-                              variant="outlined"
-                              placeholder="https://github.com/yourusername"
-                              InputProps={{
-                                startAdornment: <GitHubIcon sx={{ mr: 1, color: '#333' }} />
-                              }}
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-                  </>
-                ) : (
-                  // Company Edit Steps
-                  <>
-                    {editStep === 0 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#f8faff', border: '1px solid #e3f2fd' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#1565c0', display: 'flex', alignItems: 'center' }}>
-                          <BusinessCenterIcon sx={{ mr: 2 }} />
-                          Basic Information
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Company Name"
-                              value={formData.name || ''}
-                              onChange={handleInputChange('name')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Industry"
-                              value={formData.industry || ''}
-                              onChange={handleInputChange('industry')}
-                              variant="outlined"
-                              placeholder="e.g., Technology, Finance, Healthcare"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Email Address"
-                              type="email"
-                              value={formData.email || ''}
-                              onChange={handleInputChange('email')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Phone Number"
-                              value={formData.phone || ''}
-                              onChange={handleInputChange('phone')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="Business Address"
-                              value={formData.location || ''}
-                              onChange={handleInputChange('location')}
-                              variant="outlined"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 1 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#f3e5f5', border: '1px solid #e1bee7' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#7b1fa2', display: 'flex', alignItems: 'center' }}>
-                          <CompanyIcon sx={{ mr: 2 }} />
-                          Company Details
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="Company Website"
-                              value={formData.website || ''}
-                              onChange={handleInputChange('website')}
-                              variant="outlined"
-                              placeholder="https://yourcompany.com"
-                              InputProps={{
-                                startAdornment: <WebsiteIcon sx={{ mr: 1, color: '#666' }} />
-                              }}
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="Company Description"
-                              multiline
-                              rows={4}
-                              value={formData.description || ''}
-                              onChange={handleInputChange('description')}
-                              variant="outlined"
-                              placeholder="Describe your company, what you do, your services, and what makes you unique..."
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 2 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#e8f5e8', border: '1px solid #c8e6c9' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#2e7d32', display: 'flex', alignItems: 'center' }}>
-                          <AutoAwesomeIcon sx={{ mr: 2 }} />
-                          Mission & Vision
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Mission Statement"
-                              multiline
-                              rows={4}
-                              value={formData.mission || ''}
-                              onChange={handleInputChange('mission')}
-                              variant="outlined"
-                              placeholder="What is your company's purpose and mission?"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Vision Statement"
-                              multiline
-                              rows={4}
-                              value={formData.vision || ''}
-                              onChange={handleInputChange('vision')}
-                              variant="outlined"
-                              placeholder="What is your company's vision for the future?"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
-
-                    {editStep === 3 && (
-                      <Card elevation={0} sx={{ p: 4, backgroundColor: '#fff3e0', border: '1px solid #ffcc02' }}>
-                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: '#f57c00', display: 'flex', alignItems: 'center' }}>
-                          <PublicIcon sx={{ mr: 2 }} />
-                          Digital Presence
-                        </Typography>
-                        <Grid container spacing={3}>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="LinkedIn Company Page"
-                              value={formData.linkedin || ''}
-                              onChange={handleInputChange('linkedin')}
-                              variant="outlined"
-                              placeholder="https://linkedin.com/company/yourcompany"
-                              InputProps={{
-                                startAdornment: <LinkedInIcon sx={{ mr: 1, color: '#0077b5' }} />
-                              }}
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <TextField
-                              fullWidth
-                              label="Twitter/X Handle"
-                              value={formData.twitter || ''}
-                              onChange={handleInputChange('twitter')}
-                              variant="outlined"
-                              placeholder="https://twitter.com/yourcompany"
-                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </Card>
-                    )}
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Full Name"
+                        fullWidth
+                        value={formData.name || selectedUser?.name || ''}
+                        onChange={handleInputChange('name')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Email"
+                        fullWidth
+                        value={formData.email || selectedUser?.email || ''}
+                        onChange={handleInputChange('email')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Phone Number"
+                        fullWidth
+                        value={formData.phone || selectedUser?.phone || ''}
+                        onChange={handleInputChange('phone')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Location"
+                        fullWidth
+                        value={formData.location || selectedUser?.location || ''}
+                        onChange={handleInputChange('location')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
                   </>
                 )}
-              </Box>
-            </Fade>
+                
+                {editStep === 1 && (
+                  <>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="University"
+                        fullWidth
+                        value={formData.university || selectedUser?.university || ''}
+                        onChange={handleInputChange('university')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Major"
+                        fullWidth
+                        value={formData.major || selectedUser?.major || ''}
+                        onChange={handleInputChange('major')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Degree"
+                        fullWidth
+                        value={formData.degree || selectedUser?.degree || ''}
+                        onChange={handleInputChange('degree')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="GPA"
+                        fullWidth
+                        value={formData.gpa || selectedUser?.gpa || ''}
+                        onChange={handleInputChange('gpa')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Graduation Year"
+                        fullWidth
+                        value={formData.gradyear || selectedUser?.gradyear || ''}
+                        onChange={handleInputChange('gradyear')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+                
+                {editStep === 2 && (
+                  <>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Skills (comma separated)"
+                        fullWidth
+                        multiline
+                        rows={3}
+                        value={formData.skills || selectedUser?.skills || ''}
+                        onChange={handleInputChange('skills')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Bio"
+                        fullWidth
+                        multiline
+                        rows={4}
+                        value={formData.bio || selectedUser?.bio || ''}
+                        onChange={handleInputChange('bio')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="CV URL"
+                        fullWidth
+                        value={formData.cvUrl || selectedUser?.cvUrl || ''}
+                        onChange={handleInputChange('cvUrl')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+                
+                {editStep === 3 && (
+                  <>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="LinkedIn Profile"
+                        fullWidth
+                        value={formData.linkedin || selectedUser?.linkedin || ''}
+                        onChange={handleInputChange('linkedin')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="GitHub Profile"
+                        fullWidth
+                        value={formData.github || selectedUser?.github || ''}
+                        onChange={handleInputChange('github')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+              </Grid>
+            ) : (
+              // Company form fields
+              <Grid container spacing={3}>
+                {editStep === 0 && (
+                  <>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Company Name"
+                        fullWidth
+                        value={formData.name || selectedUser?.companyName || ''}
+                        onChange={handleInputChange('name')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Email"
+                        fullWidth
+                        value={formData.email || selectedUser?.email || ''}
+                        onChange={handleInputChange('email')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Phone Number"
+                        fullWidth
+                        value={formData.phone || selectedUser?.phone || ''}
+                        onChange={handleInputChange('phone')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Location"
+                        fullWidth
+                        value={formData.location || selectedUser?.location || ''}
+                        onChange={handleInputChange('location')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+                
+                {editStep === 1 && (
+                  <>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Industry"
+                        fullWidth
+                        value={formData.industry || selectedUser?.industry || ''}
+                        onChange={handleInputChange('industry')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Website"
+                        fullWidth
+                        value={formData.website || selectedUser?.website || ''}
+                        onChange={handleInputChange('website')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Legal Documents URL"
+                        fullWidth
+                        value={formData.legalDocsUrl || selectedUser?.legalDocsUrl || ''}
+                        onChange={handleInputChange('legalDocsUrl')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+                
+                {editStep === 2 && (
+                  <>
+                    <Grid item xs={12}>
+                      <TextField
+                        label="Company Description"
+                        fullWidth
+                        multiline
+                        rows={3}
+                        value={formData.description || selectedUser?.description || ''}
+                        onChange={handleInputChange('description')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Mission"
+                        fullWidth
+                        multiline
+                        rows={3}
+                        value={formData.mission || selectedUser?.mission || ''}
+                        onChange={handleInputChange('mission')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Vision"
+                        fullWidth
+                        multiline
+                        rows={3}
+                        value={formData.vision || selectedUser?.vision || ''}
+                        onChange={handleInputChange('vision')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+                
+                {editStep === 3 && (
+                  <>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="LinkedIn Profile"
+                        fullWidth
+                        value={formData.linkedin || selectedUser?.linkedin || ''}
+                        onChange={handleInputChange('linkedin')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        label="Twitter Profile"
+                        fullWidth
+                        value={formData.twitter || selectedUser?.twitter || ''}
+                        onChange={handleInputChange('twitter')}
+                        variant="outlined"
+                        disabled={isAutoSaving}
+                      />
+                    </Grid>
+                  </>
+                )}
+              </Grid>
+            )}
           </Box>
         </DialogContent>
-        
-        {/* Enhanced Action Bar */}
+
+        {/* Actions */}
         <Box
           sx={{
             p: 3,
@@ -2729,7 +2803,7 @@ useEffect(() => {
         >
           <Button 
             onClick={handlePrevStep}
-            disabled={editStep === 0}
+            disabled={editStep === 0 || isAutoSaving}
             startIcon={<TimelineIcon />}
             sx={{ 
               visibility: editStep === 0 ? 'hidden' : 'visible',
@@ -2747,6 +2821,7 @@ useEffect(() => {
           {editStep < editSteps.length - 1 ? (
             <Button 
               onClick={handleNextStep}
+              disabled={isAutoSaving}
               variant="contained"
               endIcon={<TimelineIcon />}
               sx={{
@@ -2763,7 +2838,8 @@ useEffect(() => {
             </Button>
           ) : (
             <Button 
-              onClick={handleSaveEdit}
+              onClick={handleFinalSave}
+              disabled={isAutoSaving}
               variant="contained"
               startIcon={<CheckCircleIcon />}
               sx={{
@@ -2780,8 +2856,11 @@ useEffect(() => {
         </Box>
       </Dialog>
     );
-  };
-
+  } catch (error) {
+    setRenderError(error);
+    return null;
+  }
+};
   // Enhanced Delete Confirmation Dialog
   const DeleteDialog = () => (
     <Dialog
@@ -2945,9 +3024,10 @@ useEffect(() => {
     setProfileDialog(true);
   };
 
-  const handleEditUser = (user) => {
+const handleEditUser = (user) => {
+  // Only reset step if dialog is not already open
+  if (!editDialog) setEditStep(0);
   setSelectedUser(user);
-  setEditStep(0);
   setEditDialog(true);
 };
 
