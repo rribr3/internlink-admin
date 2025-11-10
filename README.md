@@ -1,6 +1,6 @@
 # About
 
-The admin side for my [InternLink](https://github.com/rribr3/InternLink) project.
+The admin side for the [InternLink](https://github.com/rribr3/InternLink) application.
 
 # Getting Started with Create React App
 
